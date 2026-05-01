@@ -10,6 +10,7 @@ Phase 2 (run_ingest): Replay timeline + flush to DBs → yields checklist SSE ev
 import json
 import os
 import hashlib
+from datetime import datetime
 from pipeline.cleaner import clean_transactions, clean_events
 from ingestion.processor import IngestProcessor
 from pipeline.notifier import notify_error, notify_info
@@ -142,8 +143,16 @@ def run_ingest(clean_txn_path: str, clean_evt_path: str = None, resume: bool = F
         yield _emit("INGESTION", 65, "Syncing corporate action adjustment logic...", 
                     check_id="corp_actions", check_status="done")
 
+        import time
+        last_heartbeat = time.time()
+        
         # Iterate over the live generator
         for w in processor.run(start_row=start_row):
+            current_time = time.time()
+            if current_time - last_heartbeat >= 15:
+                yield ": heartbeat\n\n"
+                last_heartbeat = current_time
+                
             # Parse progress overrides from the engine
             if "[PROGRESS|" in w:
                 parts = w.split("]", 1)
@@ -186,6 +195,18 @@ def run_ingest(clean_txn_path: str, clean_evt_path: str = None, resume: bool = F
 
         # Notify admin of successful completion
         notify_info("Ingestion Complete", f"{total_txn} transactions and {total_evt} events processed successfully.")
+
+        try:
+            from db.mongo import ingestion_metadata_collection
+            ingestion_metadata_collection.update_one(
+                {"file_hash": file_hash},
+                {"$set": {"status": "finished", "total_rows": total_txn, "completed_at": datetime.now().isoformat()}},
+                upsert=True
+            )
+        except Exception as mongo_err:
+            print(f"[runner] MongoDB ingestion_metadata update error: {str(mongo_err)}")
+
+        yield "[FINISH] Ingestion of " + str(total_txn) + " rows complete."
 
     except Exception as e:
         import traceback

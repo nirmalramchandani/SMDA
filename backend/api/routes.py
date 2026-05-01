@@ -3,7 +3,7 @@ import shutil
 import uuid
 import json
 from datetime import datetime
-from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query, BackgroundTasks
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from pipeline.runner import run_clean, run_ingest, get_file_hash
@@ -185,8 +185,9 @@ async def upload_and_clean_batch(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/upload/ingest")
+@router.post("/upload/ingest", status_code=202)
 async def ingest_cleaned(
+    background_tasks: BackgroundTasks,
     clean_txn_path: str = Query(...),
     clean_evt_path: str = Query(None),
     resume: bool = Query(False)
@@ -194,7 +195,7 @@ async def ingest_cleaned(
     """
     Phase 2: Launch ingestion as a background task.
     
-    Returns a task_id immediately. The actual processing runs in a background
+    Returns a task_id immediately (202 Accepted). The actual processing runs in a background
     thread that survives browser disconnects. Use /upload/ingest/stream to
     watch progress, or /upload/task/status to poll.
     """
@@ -212,13 +213,15 @@ async def ingest_cleaned(
                 "message": "An ingestion is already in progress. Reconnecting.",
             })
 
-        # Start background task
-        task = TaskManager.start(
+        # Start background task using fastapi BackgroundTasks
+        task = TaskManager.create_task(
             name="ingest",
             generator_fn=run_ingest,
             args=(clean_txn_path, clean_evt_path),
             kwargs={"resume": resume},
         )
+        task.start()
+        background_tasks.add_task(task._run)
 
         TaskManager.cleanup_old()
 
@@ -226,7 +229,7 @@ async def ingest_cleaned(
             "task_id": task.task_id,
             "status": "started",
             "message": "Ingestion started in background. Use /upload/ingest/stream to watch progress.",
-        })
+        }, status_code=202)
 
     except HTTPException:
         raise

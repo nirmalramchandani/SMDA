@@ -48,11 +48,9 @@ class BackgroundTask:
         self._thread      = None
 
     def start(self):
-        """Kick off the generator in a daemon thread."""
+        """Prepare the task for execution."""
         self.status     = TaskStatus.RUNNING
         self.started_at = datetime.now().isoformat()
-        self._thread    = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
 
     def _run(self):
         """Execute the generator, buffering all yielded messages."""
@@ -118,13 +116,12 @@ class TaskManager:
     _current: dict[str, str] = {}  # name → task_id (latest task per name)
 
     @classmethod
-    def start(cls, name: str, generator_fn, args=(), kwargs=None) -> BackgroundTask:
-        """Create and start a new background task."""
+    def create_task(cls, name: str, generator_fn, args=(), kwargs=None) -> BackgroundTask:
+        """Create a new background task."""
         task_id = uuid.uuid4().hex[:12]
         task = BackgroundTask(task_id, name, generator_fn, args, kwargs)
         cls._tasks[task_id] = task
         cls._current[name] = task_id
-        task.start()
         return task
 
     @classmethod

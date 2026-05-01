@@ -54,3 +54,7 @@ async def increase_upload_limit(request: Request, call_next):
 
 
 app.include_router(router)
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "message": "Server is awake"}

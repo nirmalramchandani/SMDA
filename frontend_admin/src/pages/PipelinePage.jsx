@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import MultiFileUploader from '../components/MultiFileUploader';
 import Checklist from '../components/Checklist';
 import TerminalOutput from '../components/TerminalOutput';
@@ -137,6 +137,35 @@ export default function PipelinePage() {
       }
     });
   }, []);
+
+  // ─── Status Polling for Phase 2 ──────────────────────────────────
+  useEffect(() => {
+    let interval;
+    if (phase2Running && taskId && !isPaused) {
+      interval = setInterval(async () => {
+        try {
+          const resp = await fetch(`${API_BASE}/upload/task/status?task_id=${taskId}`);
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.status === 'complete') {
+              setPhase2Done(true);
+              setPhase2Running(false);
+              setPhase2Progress(100);
+              alert("Simulation History Fully Reconstructed: 2010–2025");
+              clearInterval(interval);
+            } else if (data.status === 'failed') {
+               setError(data.error || "Background task failed.");
+               setPhase2Running(false);
+               clearInterval(interval);
+            }
+          }
+        } catch (err) {
+          console.error("Polling error:", err);
+        }
+      }, 5000); // Poll every 5 seconds
+    }
+    return () => clearInterval(interval);
+  }, [phase2Running, taskId, isPaused]);
 
   // ─── Check for running task on page load ───────────────────────────
   useState(() => {

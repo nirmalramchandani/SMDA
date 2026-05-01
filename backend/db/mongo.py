@@ -12,3 +12,4 @@ db = client["smart_money"]
 
 investors_collection = db["investors"]
 investor_metrics_collection = db["investor_metrics"]
+ingestion_metadata_collection = db["ingestion_metadata"]
