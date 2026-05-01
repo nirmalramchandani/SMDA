@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import FileUploader from '../components/FileUploader';
+import MultiFileUploader from '../components/MultiFileUploader';
 import Checklist from '../components/Checklist';
 import TerminalOutput from '../components/TerminalOutput';
 import ProgressBar from '../components/ProgressBar';
@@ -64,9 +64,9 @@ function parseSSEStream(response, onData) {
 }
 
 export default function PipelinePage() {
-  // File state
-  const [txnFile, setTxnFile] = useState(null);
-  const [evtFile, setEvtFile] = useState(null);
+  // Multi-file state
+  const [txnFiles, setTxnFiles] = useState([]);
+  const [evtFiles, setEvtFiles] = useState([]);
 
   // Phase 1 state
   const [phase1Running, setPhase1Running] = useState(false);
@@ -87,6 +87,7 @@ export default function PipelinePage() {
   const [phase2Progress, setPhase2Progress] = useState(0);
   const [telemetry, setTelemetry] = useState('');
   const [isPaused, setIsPaused] = useState(false);
+  const [taskId, setTaskId] = useState(null);
 
   // Checkpoint
   const [checkpoint, setCheckpoint] = useState(-1);
@@ -96,10 +97,82 @@ export default function PipelinePage() {
   const [showClearModal, setShowClearModal] = useState(false);
   const [clearStatus, setClearStatus] = useState(null);
 
-  // ─── Phase 1: Clean ──────────────────────────────────────────────
+  // ─── SSE stream consumer for Phase 2 ────────────────────────────────
+  const consumeIngestStream = useCallback(async (tid) => {
+    const streamResp = await fetch(`${API_BASE}/upload/ingest/stream?task_id=${tid}`);
+    if (!streamResp.ok) {
+      throw new Error(`Stream failed: HTTP ${streamResp.status}`);
+    }
+
+    await parseSSEStream(streamResp, (data) => {
+      let msg = data.message || '';
+      let pct = data.progress || 0;
+
+      if (msg.includes('[PROGRESS|')) {
+        const parts = msg.split(']', 2);
+        pct = parseInt(parts[0].replace('[PROGRESS|', ''));
+        const actual = parts[1]?.trim() || '';
+        if (actual.includes('|')) {
+          setTelemetry(actual);
+        }
+        msg = actual;
+      }
+
+      pct = Math.max(0, Math.min(100, pct));
+      setPhase2Progress(pct);
+
+      if (data.type === 'CHECK') {
+        setPhase2Checks((prev) => ({
+          ...prev,
+          [data.check_id]: data.check_status || 'done',
+        }));
+      }
+
+      if (msg && !msg.includes('[PROGRESS')) {
+        setPhase2Logs((prev) => [...prev.slice(-50), msg]);
+      }
+
+      if (data.type === 'ERROR') {
+        setError(data.message);
+      }
+    });
+  }, []);
+
+  // ─── Check for running task on page load ───────────────────────────
+  useState(() => {
+    (async () => {
+      try {
+        const resp = await fetch(`${API_BASE}/upload/task/status?name=ingest`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data.status === 'running') {
+          setTaskId(data.task_id);
+          setPhase2Running(true);
+          setPhase2Logs((prev) => [...prev, '🔄 Reconnected to running ingestion task...']);
+          try {
+            await consumeIngestStream(data.task_id);
+            setPhase2Done(true);
+          } catch {
+            // Stream ended or errored — check final status
+          } finally {
+            setPhase2Running(false);
+            setIsPaused(false);
+          }
+        } else if (data.status === 'complete') {
+          setPhase2Done(true);
+          setPhase2Progress(100);
+          setPhase2Logs(['✅ Previous ingestion completed successfully.']);
+        }
+      } catch {
+        // No task running, that's fine
+      }
+    })();
+  });
+
+  // ─── Phase 1: Clean (Batch) ────────────────────────────────────────
   const runPhase1 = useCallback(async () => {
-    if (!txnFile) {
-      setError('Transactions CSV is required!');
+    if (txnFiles.length === 0) {
+      setError('At least one Bulk Deals CSV is required!');
       return;
     }
 
@@ -112,10 +185,32 @@ export default function PipelinePage() {
 
     try {
       const formData = new FormData();
-      formData.append('transactions', txnFile);
-      if (evtFile) formData.append('events', evtFile);
 
-      const resp = await fetch(`${API_BASE}/upload/clean`, {
+      // Append files in order
+      for (const f of txnFiles) {
+        formData.append('transactions', f);
+      }
+      for (const f of evtFiles) {
+        formData.append('events', f);
+      }
+
+      // Build order params — comma-separated filenames in the displayed order
+      const txnOrder = txnFiles.map((f) => f.name).join(',');
+      const evtOrder = evtFiles.map((f) => f.name).join(',');
+
+      const endpoint = txnFiles.length === 1 && evtFiles.length <= 1
+        ? '/upload/clean'   // single-file path (backward compat)
+        : '/upload/clean-batch';
+
+      let url = `${API_BASE}${endpoint}`;
+      if (endpoint === '/upload/clean-batch') {
+        const params = new URLSearchParams();
+        if (txnOrder) params.set('txn_order', txnOrder);
+        if (evtOrder) params.set('evt_order', evtOrder);
+        url += `?${params.toString()}`;
+      }
+
+      const resp = await fetch(url, {
         method: 'POST',
         body: formData,
       });
@@ -189,7 +284,7 @@ export default function PipelinePage() {
     } finally {
       setPhase1Running(false);
     }
-  }, [txnFile, evtFile]);
+  }, [txnFiles, evtFiles]);
 
   // ─── Phase 2: Ingest ─────────────────────────────────────────────
   const runPhase2 = useCallback(async (resume = false) => {
@@ -204,50 +299,30 @@ export default function PipelinePage() {
     setTelemetry('');
 
     try {
+      // Step 1: Start the background task
       let url = `${API_BASE}/upload/ingest?clean_txn_path=${encodeURIComponent(cleanTxnPath)}&resume=${resume}`;
       if (cleanEvtPath) {
         url += `&clean_evt_path=${encodeURIComponent(cleanEvtPath)}`;
       }
 
       const resp = await fetch(url, { method: 'POST' });
-
       if (!resp.ok) {
         const text = await resp.text();
         throw new Error(text || `HTTP ${resp.status}`);
       }
 
-      await parseSSEStream(resp, (data) => {
-        let msg = data.message || '';
-        let pct = data.progress || 0;
+      const launchData = await resp.json();
+      const tid = launchData.task_id;
+      setTaskId(tid);
 
-        if (msg.includes('[PROGRESS|')) {
-          const parts = msg.split(']', 2);
-          pct = parseInt(parts[0].replace('[PROGRESS|', ''));
-          const actual = parts[1]?.trim() || '';
-          if (actual.includes('|')) {
-            setTelemetry(actual);
-          }
-          msg = actual;
-        }
+      if (launchData.status === 'already_running') {
+        setPhase2Logs((prev) => [...prev, '🔄 Reconnecting to running ingestion...']);
+      } else {
+        setPhase2Logs((prev) => [...prev, '🚀 Ingestion started in background...']);
+      }
 
-        pct = Math.max(0, Math.min(100, pct));
-        setPhase2Progress(pct);
-
-        if (data.type === 'CHECK') {
-          setPhase2Checks((prev) => ({
-            ...prev,
-            [data.check_id]: data.check_status || 'done',
-          }));
-        }
-
-        if (msg && !msg.includes('[PROGRESS')) {
-          setPhase2Logs((prev) => [...prev.slice(-50), msg]);
-        }
-
-        if (data.type === 'ERROR') {
-          setError(data.message);
-        }
-      });
+      // Step 2: Stream progress (if browser closes, task keeps running)
+      await consumeIngestStream(tid);
 
       setPhase2Done(true);
     } catch (err) {
@@ -256,7 +331,7 @@ export default function PipelinePage() {
       setPhase2Running(false);
       setIsPaused(false);
     }
-  }, [cleanTxnPath, cleanEvtPath]);
+  }, [cleanTxnPath, cleanEvtPath, consumeIngestStream]);
 
   const handlePause = async () => {
     try {
@@ -295,6 +370,8 @@ export default function PipelinePage() {
     }
   }, []);
 
+  const totalFiles = txnFiles.length + evtFiles.length;
+
   return (
     <>
       {/* Page Header */}
@@ -321,32 +398,49 @@ export default function PipelinePage() {
       {/* ─── File Upload ─────────────────────────────────────────────── */}
       <div className="card mb-lg">
         <div className="card-header">
-          <span className="card-title">📁 Data Files</span>
-          <button
-            className="btn btn-sm btn-danger"
-            onClick={() => setShowClearModal(true)}
-          >
-            🗑️ Clear All Data
-          </button>
+          <span className="card-title">📁 Data Files — Batch Upload</span>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {totalFiles > 0 && (
+              <span className="badge badge-info">
+                {totalFiles} file{totalFiles !== 1 ? 's' : ''} queued
+              </span>
+            )}
+            <button
+              className="btn btn-sm btn-danger"
+              onClick={() => setShowClearModal(true)}
+            >
+              🗑️ Clear All Data
+            </button>
+          </div>
         </div>
+
+        {/* Info banner */}
+        <div className="status-message status-info mb-lg" style={{ fontSize: '0.82rem' }}>
+          <span>💡</span>
+          <span>
+            Upload multiple Bulk Deal and Corporate Action CSVs. Drag or use ▲▼ to set
+            processing order. Files will be <strong>merged in order</strong> before the pipeline runs.
+          </span>
+        </div>
+
         <div className="upload-grid">
-          <FileUploader
-            label="Transactions File"
+          <MultiFileUploader
+            label="Bulk Deals (Transactions)"
             required
-            file={txnFile}
-            onFileSelect={setTxnFile}
+            files={txnFiles}
+            onFilesChange={setTxnFiles}
           />
-          <FileUploader
-            label="Events File"
+          <MultiFileUploader
+            label="Corporate Actions (Events)"
             required={false}
-            file={evtFile}
-            onFileSelect={setEvtFile}
+            files={evtFiles}
+            onFilesChange={setEvtFiles}
           />
         </div>
         <button
           className="btn btn-primary btn-lg w-full"
           onClick={runPhase1}
-          disabled={phase1Running || !txnFile}
+          disabled={phase1Running || txnFiles.length === 0}
         >
           {phase1Running ? (
             <>
@@ -354,7 +448,7 @@ export default function PipelinePage() {
               Cleaning...
             </>
           ) : (
-            '🧹 Step 1: Upload & Clean'
+            `🧹 Step 1: Upload & Clean (${txnFiles.length} bulk deal${txnFiles.length !== 1 ? 's' : ''}${evtFiles.length > 0 ? `, ${evtFiles.length} event file${evtFiles.length !== 1 ? 's' : ''}` : ''})`
           )}
         </button>
       </div>

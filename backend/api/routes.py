@@ -7,6 +7,8 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from pipeline.runner import run_clean, run_ingest, get_file_hash
+from pipeline.task_manager import TaskManager
+from pipeline.notifier import notify_error
 from ingestion.processor import IngestProcessor
 from db.postgres import get_connection
 from db.mongo import investors_collection, investor_metrics_collection
@@ -51,6 +53,135 @@ async def upload_and_clean(
         raise
     except Exception as e:
         print(f"[api] Clean error: {str(e)}")
+        notify_error("Clean Pipeline Error", e, context="Single-file /upload/clean")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/upload/clean-batch")
+async def upload_and_clean_batch(
+    transactions: list[UploadFile] = File(...),
+    events: list[UploadFile] = File(None),
+    txn_order: str = Query(""),
+    evt_order: str = Query(""),
+):
+    """
+    Phase 1 (Batch): Accept multiple bulk-deal CSVs and corporate-action CSVs.
+
+    The frontend sends files in order. Optionally, txn_order / evt_order are
+    comma-separated original filenames giving the exact merge order.
+
+    All transaction files are concatenated into one CSV, all event files into
+    another, then the existing run_clean pipeline processes them.
+    """
+    import pandas as pd
+
+    try:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        uid = uuid.uuid4().hex
+
+        # ── 1. Validate & save individual transaction files ──────────
+        if not transactions or len(transactions) == 0:
+            raise HTTPException(status_code=400, detail="At least one transactions CSV is required")
+
+        txn_temp_paths = []  # list of (key, path) to preserve duplicate filenames
+        for i, f in enumerate(transactions):
+            if not f.filename.endswith(".csv"):
+                raise HTTPException(status_code=400, detail=f"File '{f.filename}' is not a CSV")
+            temp_path = os.path.join(UPLOAD_FOLDER, f"{ts}_{uid}_batch_{i}_{f.filename}")
+            with open(temp_path, "wb") as out:
+                shutil.copyfileobj(f.file, out)
+            txn_temp_paths.append((f.filename, temp_path))
+
+        # ── 2. Determine merge order for transactions ────────────────
+        #    Build lookup: filename → list of paths (handles duplicates)
+        txn_lookup = {}
+        for name, path in txn_temp_paths:
+            txn_lookup.setdefault(name, []).append(path)
+
+        if txn_order:
+            ordered_names = [n.strip() for n in txn_order.split(",") if n.strip()]
+        else:
+            ordered_names = [name for name, _ in txn_temp_paths]
+
+        txn_frames = []
+        used_counts = {}  # track which duplicate index to use per name
+        for name in ordered_names:
+            paths = txn_lookup.get(name, [])
+            idx = used_counts.get(name, 0)
+            if idx < len(paths):
+                df = pd.read_csv(paths[idx])
+                txn_frames.append(df)
+                used_counts[name] = idx + 1
+
+        if not txn_frames:
+            raise HTTPException(status_code=400, detail="No valid transaction files after ordering")
+
+        merged_txn = pd.concat(txn_frames, ignore_index=True)
+        merged_txn_path = os.path.join(UPLOAD_FOLDER, f"{ts}_{uid}_transactions.csv")
+        merged_txn.to_csv(merged_txn_path, index=False)
+
+        # Clean up temp transaction files
+        for _, p in txn_temp_paths:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+        # ── 3. Handle event files (optional) ─────────────────────────
+        merged_evt_path = None
+        if events and len(events) > 0 and events[0].filename:
+            evt_temp_paths = []
+            for i, f in enumerate(events):
+                if not f.filename or not f.filename.endswith(".csv"):
+                    continue
+                temp_path = os.path.join(UPLOAD_FOLDER, f"{ts}_{uid}_batch_{i}_{f.filename}")
+                with open(temp_path, "wb") as out:
+                    shutil.copyfileobj(f.file, out)
+                evt_temp_paths.append((f.filename, temp_path))
+
+            if evt_temp_paths:
+                evt_lookup = {}
+                for name, path in evt_temp_paths:
+                    evt_lookup.setdefault(name, []).append(path)
+
+                if evt_order:
+                    evt_ordered = [n.strip() for n in evt_order.split(",") if n.strip()]
+                else:
+                    evt_ordered = [name for name, _ in evt_temp_paths]
+
+                evt_frames = []
+                evt_used = {}
+                for name in evt_ordered:
+                    paths = evt_lookup.get(name, [])
+                    idx = evt_used.get(name, 0)
+                    if idx < len(paths):
+                        df = pd.read_csv(paths[idx])
+                        evt_frames.append(df)
+                        evt_used[name] = idx + 1
+
+                if evt_frames:
+                    merged_evt = pd.concat(evt_frames, ignore_index=True)
+                    merged_evt_path = os.path.join(UPLOAD_FOLDER, f"{ts}_{uid}_events.csv")
+                    merged_evt.to_csv(merged_evt_path, index=False)
+
+                # Clean up temp event files
+                for _, p in evt_temp_paths:
+                    try:
+                        os.remove(p)
+                    except OSError:
+                        pass
+
+        # ── 4. Delegate to existing clean pipeline ───────────────────
+        return StreamingResponse(
+            run_clean(merged_txn_path, merged_evt_path),
+            media_type="text/event-stream"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[api] Batch clean error: {str(e)}")
+        notify_error("Batch Clean Error", e, context="Multi-file /upload/clean-batch")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -60,21 +191,86 @@ async def ingest_cleaned(
     clean_evt_path: str = Query(None),
     resume: bool = Query(False)
 ):
-    """Phase 2: Ingest cleaned data into databases. ACID-compliant."""
+    """
+    Phase 2: Launch ingestion as a background task.
+    
+    Returns a task_id immediately. The actual processing runs in a background
+    thread that survives browser disconnects. Use /upload/ingest/stream to
+    watch progress, or /upload/task/status to poll.
+    """
     try:
         if not os.path.exists(clean_txn_path):
             raise HTTPException(status_code=400, detail="Cleaned transaction file not found. Run /upload/clean first.")
 
-        return StreamingResponse(
-            run_ingest(clean_txn_path, clean_evt_path, resume=resume),
-            media_type="text/event-stream"
+        # Check if an ingestion is already running
+        existing = TaskManager.get_latest("ingest")
+        if existing and existing.status.value == "running":
+            # Return the existing task so frontend can reconnect
+            return JSONResponse({
+                "task_id": existing.task_id,
+                "status": "already_running",
+                "message": "An ingestion is already in progress. Reconnecting.",
+            })
+
+        # Start background task
+        task = TaskManager.start(
+            name="ingest",
+            generator_fn=run_ingest,
+            args=(clean_txn_path, clean_evt_path),
+            kwargs={"resume": resume},
         )
+
+        TaskManager.cleanup_old()
+
+        return JSONResponse({
+            "task_id": task.task_id,
+            "status": "started",
+            "message": "Ingestion started in background. Use /upload/ingest/stream to watch progress.",
+        })
 
     except HTTPException:
         raise
     except Exception as e:
         print(f"[api] Ingest error: {str(e)}")
+        notify_error("Ingest Launch Failed", e, context=f"File: {clean_txn_path}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/upload/ingest/stream")
+async def stream_ingest(task_id: str = Query(...)):
+    """
+    SSE stream that reads from a running background task's buffer.
+    
+    If the browser closes and reopens, just call this again with the same
+    task_id to reconnect — the background task keeps running regardless.
+    """
+    task = TaskManager.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found.")
+
+    return StreamingResponse(
+        task.stream(),
+        media_type="text/event-stream"
+    )
+
+
+@router.get("/upload/task/status")
+async def task_status(task_id: str = Query(None), name: str = Query(None)):
+    """
+    Check the status of a background task by task_id or by name (e.g. 'ingest').
+    Returns status, progress, error info, and timestamps.
+    """
+    task = None
+    if task_id:
+        task = TaskManager.get(task_id)
+    elif name:
+        task = TaskManager.get_latest(name)
+
+    if not task:
+        return {"status": "none", "message": "No task found."}
+
+    return task.to_dict()
+
 
 
 @router.get("/upload/checkpoint")

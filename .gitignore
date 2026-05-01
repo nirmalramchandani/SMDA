@@ -8,3 +8,28 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Environment variables (NEVER commit these)
+.env
+
+# Uploaded data files
+backend/uploads/*.csv
+backend/uploads/*.parquet
+
+# Node modules
+node_modules/
+
+# Build output
+frontend_admin/dist/
+frontend_user/dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Gemini
+.gemini/

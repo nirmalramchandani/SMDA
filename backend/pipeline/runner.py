@@ -12,6 +12,7 @@ import os
 import hashlib
 from pipeline.cleaner import clean_transactions, clean_events
 from ingestion.processor import IngestProcessor
+from pipeline.notifier import notify_error, notify_info
 
 
 def _emit(stage: str, percentage: int, message: str, check_id: str = None, check_status: str = None):
@@ -183,8 +184,12 @@ def run_ingest(clean_txn_path: str, clean_evt_path: str = None, resume: bool = F
         total_evt = len(events_df) if events_df is not None else 0
         yield _emit("COMPLETE", 100, f"Sync Ingestion & Scoring complete! {total_txn} rows persisted successfully.")
 
+        # Notify admin of successful completion
+        notify_info("Ingestion Complete", f"{total_txn} transactions and {total_evt} events processed successfully.")
+
     except Exception as e:
         import traceback
         err_msg = f"CRASH: {str(e)}\n{traceback.format_exc()}"
         print(f"[runner] {err_msg}")
+        notify_error("Pipeline Crash", e, context=f"During ingestion of {clean_txn_path}")
         yield _emit("ERROR", 0, err_msg)

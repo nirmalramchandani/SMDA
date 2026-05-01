@@ -453,6 +453,144 @@ body {
   margin-bottom: var(--space-lg);
 }
 
+/* ─── Multi-File Uploader List ─────────────────────────────────────────────── */
+.multi-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: var(--space-md);
+}
+
+.multi-file-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 0.84rem;
+  transition: var(--transition-fast);
+  cursor: grab;
+  user-select: none;
+}
+
+.multi-file-item:hover {
+  border-color: var(--border-medium);
+  background: var(--bg-card-hover);
+}
+
+.multi-file-item.dragging {
+  opacity: 0.4;
+  border-color: var(--accent-blue);
+}
+
+.multi-file-item.drag-over-item {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 1px var(--accent-blue);
+}
+
+.file-order-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--accent-blue);
+  font-size: 0.72rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.file-drag-handle {
+  color: var(--text-muted);
+  font-size: 1rem;
+  cursor: grab;
+  flex-shrink: 0;
+  line-height: 1;
+  letter-spacing: 0.5px;
+}
+
+.file-item-name {
+  flex: 1;
+  color: var(--text-primary);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-item-size {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.file-item-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: var(--space-sm);
+}
+
+.file-move-btn,
+.file-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.65rem;
+  transition: var(--transition-fast);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  padding: 0;
+  line-height: 1;
+}
+
+.file-move-btn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.file-move-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.file-remove-btn {
+  color: var(--text-muted);
+}
+
+.file-remove-btn:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: var(--accent-red);
+  color: var(--accent-red);
+}
+
+.multi-file-zone {
+  padding: var(--space-md) var(--space-lg);
+  min-height: unset;
+}
+
+.multi-file-zone .upload-icon {
+  font-size: 1.4rem;
+  margin-bottom: 2px;
+}
+
+.multi-file-zone .upload-text {
+  font-size: 0.82rem;
+}
+
 /* ─── Checklist ────────────────────────────────────────────────────────────── */
 .checklist {
   list-style: none;
