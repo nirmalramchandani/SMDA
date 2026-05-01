@@ -92,35 +92,11 @@ def _send_email(subject: str, body: str):
         print(f"[notifier] Email failed: {e}")
 
 
-def _send_telegram(message: str):
-    """Send alert via Telegram Bot API. Runs in background thread."""
-    if not all([TELEGRAM_TOKEN, TELEGRAM_CHAT]):
-        return
-
-    try:
-        import requests
-
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": TELEGRAM_CHAT,
-            "text": message,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True,
-        }
-        resp = requests.post(url, json=payload, timeout=10)
-        if resp.ok:
-            print(f"[notifier] Telegram alert sent")
-        else:
-            print(f"[notifier] Telegram failed: {resp.status_code} {resp.text}")
-    except Exception as e:
-        print(f"[notifier] Telegram failed: {e}")
-
-
 # ─── Public API ───────────────────────────────────────────────────────────────
 
 def notify_error(subject: str, error: Exception | str, context: str = ""):
     """
-    Send an error notification to all configured channels.
+    Send an error notification to configured email.
     
     Args:
         subject:  Short description (e.g. "Pipeline Crash", "Ingestion Failed")
@@ -150,33 +126,22 @@ def notify_error(subject: str, error: Exception | str, context: str = ""):
     if stack_trace:
         body += f"\nStack Trace:\n{stack_trace}"
 
-    # Telegram message (shorter, mobile-friendly)
-    tg_msg = (
-        f"🚨 <b>SMDA Alert: {subject}</b>\n\n"
-        f"⏰ {timestamp}\n"
-    )
-    if context:
-        tg_msg += f"📋 {context}\n"
-    tg_msg += f"❌ <code>{error_text[:500]}</code>"
-
-    # Fire both channels in background threads (non-blocking)
+    # Fire email channel in background thread (non-blocking)
     threading.Thread(target=_send_email, args=(subject, body), daemon=True).start()
-    threading.Thread(target=_send_telegram, args=(tg_msg,), daemon=True).start()
 
 
 def notify_info(subject: str, message: str):
     """
     Send an informational notification (e.g. ingestion complete).
-    Lower priority — only sends to Telegram (not email).
     """
     alert_key = f"info:{subject}"
     if not _should_send(alert_key):
         return
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S IST")
-    tg_msg = (
-        f"✅ <b>SMDA: {subject}</b>\n\n"
-        f"⏰ {timestamp}\n"
-        f"📋 {message}"
+    body = (
+        f"Time: {timestamp}\n\n"
+        f"Message:\n{message}"
     )
-    threading.Thread(target=_send_telegram, args=(tg_msg,), daemon=True).start()
+    
+    threading.Thread(target=_send_email, args=(subject, body), daemon=True).start()
