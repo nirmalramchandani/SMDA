@@ -6,6 +6,14 @@ const THRESHOLD_SELL_HEAVY = 15;
 const THRESHOLD_PROFIT_BOOK = 60;
 const THRESHOLD_BUY = 15;
 
+const STOCK_NAMES = {
+  'RCOM': 'Reliance Communication',
+  'TATAMTRDVR': 'Tata Motors DVR',
+  'HDFCBANK': 'HDFC Bank Ltd',
+  'INFY': 'Infosys Ltd',
+  'TCS': 'Tata Consultancy Services'
+};
+
 export default function Recommendations() {
   const { transactions, investors, loading } = useSMDAData();
 
@@ -97,10 +105,11 @@ export default function Recommendations() {
         {signals.length > 0 ? (
           signals.map((sig, idx) => {
             const style = getActionColor(sig.action);
+            const displayName = STOCK_NAMES[sig.symbol] || sig.symbol;
             return (
               <div key={idx} className="glass-card" style={{ borderColor: style.border }}>
                 <div className="flex justify-between items-center mb-4">
-                  <span className="mono text-xl font-bold">{sig.symbol}</span>
+                  <span className="mono text-xl font-bold" title={sig.symbol}>{displayName}</span>
                   <span className={`badge ${style.textClass} flex items-center gap-1`}>
                     {style.icon} {sig.action.split(' ')[1]}
                   </span>

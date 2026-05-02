@@ -400,15 +400,13 @@ async def get_transactions(limit: int = Query(500)):
     # Sort all by date descending and take top 'limit'
     transactions.sort(key=lambda x: x["date"] or "", reverse=True)
     
-    # Filter to last 1 week if user wants max 1 week data, but we can do it softly by limit or strictly by date
-    # Let's find the max date in the data
+    # Filter to exactly the LAST working day of data available in the system
+    # If the max date in the data is Monday, we only return Monday's data.
     if transactions:
         max_date_str = transactions[0]["date"]
         if max_date_str:
-            max_date = datetime.strptime(max_date_str[:10], "%Y-%m-%d").date()
-            from datetime import timedelta
-            one_week_ago = max_date - timedelta(days=7)
-            transactions = [t for t in transactions if t["date"] and datetime.strptime(t["date"][:10], "%Y-%m-%d").date() >= one_week_ago]
+            max_date = max_date_str[:10]  # Exact date string e.g., "2025-09-30"
+            transactions = [t for t in transactions if t["date"] and t["date"][:10] == max_date]
             
     return {"total": len(transactions), "data": transactions[:limit]}
 

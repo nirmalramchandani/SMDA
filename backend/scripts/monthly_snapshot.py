@@ -124,12 +124,21 @@ def generate_monthly_snapshots(target_date: date = None):
             created_at = NOW();
     """
     
+    prune_query = """
+        -- Delete non-December snapshots older than 1 year to save storage
+        DELETE FROM investor_snapshots 
+        WHERE snapshot_date < CURRENT_DATE - INTERVAL '1 year' 
+          AND EXTRACT(MONTH FROM snapshot_date) != 12;
+    """
+    
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.executemany(upsert_query, snapshot_records)
+            print("[*] Pruning old non-yearly snapshots to save NeonDB storage...")
+            cur.execute(prune_query)
         conn.commit()
         
-    print("[DONE] Snapshot generation complete.")
+    print("[DONE] Snapshot generation and pruning complete.")
 
 if __name__ == "__main__":
     generate_monthly_snapshots()

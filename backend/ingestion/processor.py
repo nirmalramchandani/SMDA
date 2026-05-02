@@ -810,7 +810,13 @@ class IngestProcessor:
                        (current_month.year == txn_date.year and current_month.month < txn_date.month)):
                     last_day        = calendar.monthrange(current_month.year, current_month.month)[1]
                     end_of_month    = date(current_month.year, current_month.month, last_day)
-                    yield from self._sync_persist_monthly_snapshots(end_of_month)
+                    
+                    # STORAGE OPTIMIZATION: Only take yearly snapshots (December) for historical data
+                    # Take monthly snapshots only for the current and previous year to save NeonDB space.
+                    current_year = date.today().year
+                    if current_month.month == 12 or current_month.year >= current_year - 1:
+                        yield from self._sync_persist_monthly_snapshots(end_of_month)
+                        
                     if current_month.month == 12:
                         current_month = date(current_month.year + 1, 1, 1)
                     else:

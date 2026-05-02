@@ -3,6 +3,14 @@ import { useSMDAData } from '../hooks/useSMDA';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { TrendingUp } from 'lucide-react';
 
+const STOCK_NAMES = {
+  'RCOM': 'Reliance Communication',
+  'TATAMTRDVR': 'Tata Motors DVR',
+  'HDFCBANK': 'HDFC Bank Ltd',
+  'INFY': 'Infosys Ltd',
+  'TCS': 'Tata Consultancy Services'
+};
+
 export default function TopStocks() {
   const { sells, loading } = useSMDAData();
 
@@ -46,10 +54,10 @@ export default function TopStocks() {
           <div className="card-title">Cumulative PnL Leaders</div>
           <div style={{ height: '300px' }}>
             <ResponsiveContainer width="100%" height="100%" minWidth={1}>
-              <BarChart data={top10} layout="vertical" margin={{ top: 0, right: 0, left: 30, bottom: 0 }}>
+              <BarChart data={top10.map(item => ({...item, displayName: STOCK_NAMES[item.symbol] || item.symbol}))} layout="vertical" margin={{ top: 0, right: 0, left: 30, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                 <XAxis type="number" />
-                <YAxis dataKey="symbol" type="category" />
+                <YAxis dataKey="displayName" type="category" width={100} />
                 <Tooltip cursor={{fill: 'rgba(255,255,255,0.05)'}} />
                 <Bar dataKey="pnl" radius={[0, 4, 4, 0]}>
                   {top10.map((entry, index) => (
@@ -65,9 +73,9 @@ export default function TopStocks() {
           <div className="card-title">Trade Volume Matrix</div>
           <div style={{ height: '300px' }}>
             <ResponsiveContainer width="100%" height="100%" minWidth={1}>
-              <BarChart data={top10}>
+              <BarChart data={top10.map(item => ({...item, displayName: STOCK_NAMES[item.symbol] || item.symbol}))}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="symbol" />
+                <XAxis dataKey="displayName" />
                 <YAxis />
                 <Tooltip cursor={{fill: 'rgba(255,255,255,0.05)'}} />
                 <Bar dataKey="volume" fill="var(--accent-blue)" radius={[4, 4, 0, 0]} />
@@ -83,7 +91,7 @@ export default function TopStocks() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Symbol</th>
+                <th>Company</th>
                 <th>Global PnL</th>
                 <th>Total Volume Traded</th>
                 <th>Win Rate</th>
@@ -92,7 +100,9 @@ export default function TopStocks() {
             <tbody>
               {stockPerformance.map(stock => (
                 <tr key={stock.symbol}>
-                  <td className="mono font-bold" style={{ color: 'var(--text-primary)'}}>{stock.symbol}</td>
+                  <td className="font-bold" style={{ color: 'var(--text-primary)'}} title={stock.symbol}>
+                    {STOCK_NAMES[stock.symbol] || stock.symbol}
+                  </td>
                   <td className={stock.pnl >= 0 ? "text-glow-success" : "text-glow-danger"}>
                     {stock.pnl >= 0 ? '+' : '-'}${Math.abs(stock.pnl).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </td>
