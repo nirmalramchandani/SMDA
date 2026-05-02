@@ -305,8 +305,9 @@ async def resume_ingestion():
 
 @router.get("/data/investors")
 async def get_investors(limit: int = Query(50), skip: int = Query(0)):
-    """Return investor profiles from MongoDB."""
+    """Return investor profiles from MongoDB, sorted by smart money score."""
     docs = list(investors_collection.find({}, {"portfolio_state.open_lots": 0})
+                .sort("ranking_scores.smart_money_score", -1)
                 .skip(skip).limit(limit))
     
     # Convert ObjectId and dates to strings for JSON serialization
@@ -315,6 +316,16 @@ async def get_investors(limit: int = Query(50), skip: int = Query(0)):
     
     total = investors_collection.count_documents({})
     return {"total": total, "data": docs}
+
+@router.get("/data/investors/{investor_id}")
+async def get_investor(investor_id: str):
+    """Return a single investor profile from MongoDB."""
+    doc = investors_collection.find_one({"_id": investor_id}, {"portfolio_state.open_lots": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Investor not found")
+    
+    doc["_id"] = str(doc["_id"])
+    return {"data": doc}
 
 
 @router.get("/data/sells")

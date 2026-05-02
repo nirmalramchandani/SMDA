@@ -33,3 +33,6 @@ Thumbs.db
 
 # Gemini
 .gemini/
+
+# Database Backups
+backend/investor_snapshots_archive.csv

@@ -67,7 +67,7 @@ export default function Transactions() {
                   </td>
                   <td className="mono font-bold" style={{ color: 'var(--text-primary)'}}>{txn.symbol}</td>
                   <td>{txn.quantity.toLocaleString()}</td>
-                  <td className="mono" style={{ color: 'var(--text-secondary)'}}>${txn.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                  <td className="mono" style={{ color: 'var(--text-secondary)'}}>₹{txn.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                 </tr>
               ))}
               {transactions.length === 0 && (

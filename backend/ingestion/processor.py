@@ -159,7 +159,16 @@ def _inline_ranking_scores(state: dict, metrics: dict) -> dict:
     conviction = w_hd + w_sz + w_en
 
     # Smart Money Score
-    scale_bonus = 20.0 if investor_type in ("OPERATOR", "LARGE_INVESTOR") else (10.0 if investor_type == "MID_INVESTOR" else 0.0)
+    # PENNY STOCK PROTECTION: Penalize 'OPERATOR's (manipulators) instead of rewarding them.
+    if investor_type == "LARGE_INVESTOR":
+        scale_bonus = 20.0
+    elif investor_type == "MID_INVESTOR":
+        scale_bonus = 10.0
+    elif investor_type == "OPERATOR":
+        scale_bonus = -50.0  # Heavy penalty for penny stock manipulators
+    else:
+        scale_bonus = 0.0
+        
     smart_money = (consistency * 0.35) + (risk_mgt * 0.35) + (conviction * 0.1) + scale_bonus
 
     # Low volume dampener
@@ -481,10 +490,18 @@ class IngestProcessor:
 
         trade_value = float(qty) * float(price)
 
+        EXEMPT_LOW_PRICE_STOCKS = {
+            "IDEA", "YESBANK", "SUZLON", "IRFC", "PNB", "IDFCFIRSTB", 
+            "UCOBANK", "BANKINDIA", "UNIONBANK", "IOB", "NHPC", "SJVN", 
+            "CENTRALBK", "MAHABANK", "EQUITASBNK", "UJJIVANSFB", "SOUTHBANK",
+            "GMRINFRA", "JPPOWER", "RPOWER", "RTNPOWER", "INFIBEAM", "HCC", 
+            "TRIDENT", "NBCC", "RENUKA", "EASEMYTRIP", "ZOMATO"
+        }
+
         # Cumulative counters
         cumul["total_trades"]      += 1
         cumul["total_trade_value"] += trade_value
-        if float(price) < PENNY_PRICE_THRESHOLD:
+        if float(price) < PENNY_PRICE_THRESHOLD and symbol not in EXEMPT_LOW_PRICE_STOCKS:
             cumul["penny_trade_count"] += 1
         if trade_value > LARGE_TRADE_VALUE:
             cumul["large_trade_count"] += 1
@@ -558,10 +575,18 @@ class IngestProcessor:
 
         trade_value = float(qty) * float(price)
 
+        EXEMPT_LOW_PRICE_STOCKS = {
+            "IDEA", "YESBANK", "SUZLON", "IRFC", "PNB", "IDFCFIRSTB", 
+            "UCOBANK", "BANKINDIA", "UNIONBANK", "IOB", "NHPC", "SJVN", 
+            "CENTRALBK", "MAHABANK", "EQUITASBNK", "UJJIVANSFB", "SOUTHBANK",
+            "GMRINFRA", "JPPOWER", "RPOWER", "RTNPOWER", "INFIBEAM", "HCC", 
+            "TRIDENT", "NBCC", "RENUKA", "EASEMYTRIP", "ZOMATO"
+        }
+
         # Cumulative counters
         cumul["total_trades"]      += 1
         cumul["total_trade_value"] += trade_value
-        if float(price) < PENNY_PRICE_THRESHOLD:
+        if float(price) < PENNY_PRICE_THRESHOLD and symbol not in EXEMPT_LOW_PRICE_STOCKS:
             cumul["penny_trade_count"] += 1
         if trade_value > LARGE_TRADE_VALUE:
             cumul["large_trade_count"] += 1
@@ -950,19 +975,21 @@ class IngestProcessor:
                         _peak_price = cumul["symbol_max_price"].get(symbol)
                         _mcap_cat = _classify_mcap(float(price))
 
-                        sell_rec = (
-                            investor_name, symbol, txn_date, sell_to_process, float(price),
-                            float(total_pnl), pnl_pct, min_hold, max_hold,
-                            first_buy.isoformat() if first_buy else None, 
-                            last_buy.isoformat() if last_buy else None,
-                            _trade_seq, exit_type, entry_type, _peak_price, _mcap_cat
-                        )
+                        # INTRADAY PROTECTION: Ignore trades where buy and sell occurred on the exact same day
+                        if max_hold > 0:
+                            sell_rec = (
+                                investor_name, symbol, txn_date, sell_to_process, float(price),
+                                float(total_pnl), pnl_pct, min_hold, max_hold,
+                                first_buy.isoformat() if first_buy else None, 
+                                last_buy.isoformat() if last_buy else None,
+                                _trade_seq, exit_type, entry_type, _peak_price, _mcap_cat
+                            )
 
-                        self._update_metrics_on_sell(
-                            investor_name, symbol, sell_to_process, price,
-                            float(total_pnl), pnl_pct, min_hold, max_hold,
-                            exit_type, txn_date, position_closed
-                        )
+                            self._update_metrics_on_sell(
+                                investor_name, symbol, sell_to_process, price,
+                                float(total_pnl), pnl_pct, min_hold, max_hold,
+                                exit_type, txn_date, position_closed
+                            )
 
                 # Update tracked_value + position weights after every row
                 self._update_position_weights(state)

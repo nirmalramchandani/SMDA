@@ -2,14 +2,7 @@ import { useMemo } from 'react';
 import { useSMDAData } from '../hooks/useSMDA';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { TrendingUp } from 'lucide-react';
-
-const STOCK_NAMES = {
-  'RCOM': 'Reliance Communication',
-  'TATAMTRDVR': 'Tata Motors DVR',
-  'HDFCBANK': 'HDFC Bank Ltd',
-  'INFY': 'Infosys Ltd',
-  'TCS': 'Tata Consultancy Services'
-};
+import { getStockName } from '../utils/stockMap';
 
 export default function TopStocks() {
   const { sells, loading } = useSMDAData();
@@ -54,7 +47,7 @@ export default function TopStocks() {
           <div className="card-title">Cumulative PnL Leaders</div>
           <div style={{ height: '300px' }}>
             <ResponsiveContainer width="100%" height="100%" minWidth={1}>
-              <BarChart data={top10.map(item => ({...item, displayName: STOCK_NAMES[item.symbol] || item.symbol}))} layout="vertical" margin={{ top: 0, right: 0, left: 30, bottom: 0 }}>
+              <BarChart data={top10.map(item => ({...item, displayName: getStockName(item.symbol)}))} layout="vertical" margin={{ top: 0, right: 0, left: 30, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                 <XAxis type="number" />
                 <YAxis dataKey="displayName" type="category" width={100} />
@@ -73,7 +66,7 @@ export default function TopStocks() {
           <div className="card-title">Trade Volume Matrix</div>
           <div style={{ height: '300px' }}>
             <ResponsiveContainer width="100%" height="100%" minWidth={1}>
-              <BarChart data={top10.map(item => ({...item, displayName: STOCK_NAMES[item.symbol] || item.symbol}))}>
+              <BarChart data={top10.map(item => ({...item, displayName: getStockName(item.symbol)}))}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="displayName" />
                 <YAxis />
@@ -101,10 +94,10 @@ export default function TopStocks() {
               {stockPerformance.map(stock => (
                 <tr key={stock.symbol}>
                   <td className="font-bold" style={{ color: 'var(--text-primary)'}} title={stock.symbol}>
-                    {STOCK_NAMES[stock.symbol] || stock.symbol}
+                    {getStockName(stock.symbol)}
                   </td>
                   <td className={stock.pnl >= 0 ? "text-glow-success" : "text-glow-danger"}>
-                    {stock.pnl >= 0 ? '+' : '-'}${Math.abs(stock.pnl).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    {stock.pnl >= 0 ? '+' : '-'}₹{Math.abs(stock.pnl).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </td>
                   <td>{stock.volume.toLocaleString()}</td>
                   <td>

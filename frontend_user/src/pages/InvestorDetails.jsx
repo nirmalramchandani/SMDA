@@ -1,17 +1,38 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useSMDAData } from '../hooks/useSMDA';
 import { ArrowLeft, User, Crosshair, Calendar, Target, Activity, TrendingUp } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 export default function InvestorDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { investors, sells, loading } = useSMDAData();
+  const [fetchedProfile, setFetchedProfile] = useState(null);
+  const [fetchingLocal, setFetchingLocal] = useState(false);
 
-  const profile = useMemo(() => {
+  const baseProfile = useMemo(() => {
     return investors.find(i => i._id === id);
   }, [investors, id]);
+
+  const profile = baseProfile || fetchedProfile;
+
+  useEffect(() => {
+    if (!loading && !baseProfile && !fetchedProfile && !fetchingLocal) {
+      setFetchingLocal(true);
+      fetch(`${API_BASE}/data/investors/${encodeURIComponent(id)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.data) {
+            setFetchedProfile(data.data);
+          }
+        })
+        .catch(err => console.error("Error fetching investor:", err))
+        .finally(() => setFetchingLocal(false));
+    }
+  }, [loading, baseProfile, fetchedProfile, fetchingLocal, id]);
 
   const clientTrades = useMemo(() => {
     if (!profile || !sells.length) return [];
@@ -50,7 +71,7 @@ export default function InvestorDetails() {
     };
   }, [clientTrades]);
 
-  if (loading) return <div className="loader-container"><div className="spinner" /></div>;
+  if (loading || fetchingLocal) return <div className="loader-container"><div className="spinner" /></div>;
 
   if (!profile) {
     return (
@@ -110,7 +131,7 @@ export default function InvestorDetails() {
             <div className="mt-4">
               <div className="text-sm text-muted mb-1 flex items-center gap-2"><ArrowLeft size={14}/> Realized PnL</div>
               <div className={`font-mono font-bold ${(stats?.realized || 0) >= 0 ? 'text-glow-success' : 'text-glow-danger'}`}>
-                {(stats?.realized || 0) >= 0 ? '+' : '-'}${Math.abs(stats?.realized || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                {(stats?.realized || 0) >= 0 ? '+' : '-'}₹{Math.abs(stats?.realized || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
               </div>
             </div>
             <div className="mt-4">

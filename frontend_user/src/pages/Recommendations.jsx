@@ -1,18 +1,11 @@
 import { useMemo } from 'react';
 import { useSMDAData } from '../hooks/useSMDA';
 import { TrendingUp, TrendingDown, BrainCircuit, Activity } from 'lucide-react';
+import { getStockName } from '../utils/stockMap';
 
 const THRESHOLD_SELL_HEAVY = 15; 
 const THRESHOLD_PROFIT_BOOK = 60;
 const THRESHOLD_BUY = 15;
-
-const STOCK_NAMES = {
-  'RCOM': 'Reliance Communication',
-  'TATAMTRDVR': 'Tata Motors DVR',
-  'HDFCBANK': 'HDFC Bank Ltd',
-  'INFY': 'Infosys Ltd',
-  'TCS': 'Tata Consultancy Services'
-};
 
 export default function Recommendations() {
   const { transactions, investors, loading } = useSMDAData();
@@ -28,8 +21,19 @@ export default function Recommendations() {
 
     const stockStats = {}; // symbol -> { currentScore: 0, recentSellScore: 0 }
 
+    const EXEMPT_LOW_PRICE_STOCKS = [
+      "IDEA", "YESBANK", "SUZLON", "IRFC", "PNB", "IDFCFIRSTB", 
+      "UCOBANK", "BANKINDIA", "UNIONBANK", "IOB", "NHPC", "SJVN", 
+      "CENTRALBK", "MAHABANK", "EQUITASBNK", "UJJIVANSFB", "SOUTHBANK",
+      "GMRINFRA", "JPPOWER", "RPOWER", "RTNPOWER", "INFIBEAM", "HCC", 
+      "TRIDENT", "NBCC", "RENUKA", "EASEMYTRIP", "ZOMATO"
+    ];
+
     // Evaluate all transactions
     transactions.forEach(tx => {
+      // PENNY STOCK PROTECTION: Discard signals for stocks under 50, UNLESS they are known high-mcap liquid stocks.
+      if (tx.price && tx.price < 50 && !EXEMPT_LOW_PRICE_STOCKS.includes(tx.symbol)) return;
+
       const score = clientScores[tx.client_id] || 0;
       const sym = tx.symbol;
       
@@ -105,7 +109,7 @@ export default function Recommendations() {
         {signals.length > 0 ? (
           signals.map((sig, idx) => {
             const style = getActionColor(sig.action);
-            const displayName = STOCK_NAMES[sig.symbol] || sig.symbol;
+            const displayName = getStockName(sig.symbol);
             return (
               <div key={idx} className="glass-card" style={{ borderColor: style.border }}>
                 <div className="flex justify-between items-center mb-4">

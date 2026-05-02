@@ -177,7 +177,7 @@ export default function Dashboard() {
                     </td>
                     <td className="mono">{row.id}</td>
                     <td className={row.pnl >= 0 ? 'text-glow-success' : 'text-glow-danger'}>
-                      {row.pnl >= 0 ? '+' : '-'}${Math.abs(row.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {row.pnl >= 0 ? '+' : '-'}₹{Math.abs(row.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                     <td>{row.smartScore.toFixed(2)}</td>
                     <td className="text-right">
