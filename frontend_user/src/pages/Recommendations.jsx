@@ -63,18 +63,18 @@ export default function Recommendations() {
         if (s.recentSellScore > THRESHOLD_SELL_HEAVY) {
           action = 'STRONG SELL';
           conf = Math.min(99, 50 + (s.recentSellScore / 2));
-          expectedReturn = `-${Math.floor(8 + (s.recentSellScore % 15))}% (Downside Risk)`;
-          holdDuration = 'Liquidate Immediately';
+          expectedReturn = 'Heavy Distribution Detected';
+          holdDuration = 'Institutions are exiting. Risk of reversal.';
         } else if (s.currentScore > THRESHOLD_PROFIT_BOOK) {
           action = 'MODERATE SELL';
           conf = 60 + Math.min(20, (s.currentScore - THRESHOLD_PROFIT_BOOK)/10);
-          expectedReturn = `-${Math.floor(5 + (s.currentScore % 10))}% (Correction Risk)`;
-          holdDuration = 'Consider Exit';
+          expectedReturn = 'Profit Booking Detected';
+          holdDuration = 'Smart money is reducing exposure.';
         } else if (s.currentScore > THRESHOLD_BUY) {
           action = 'STRONG BUY';
           conf = Math.min(99, 50 + (s.currentScore / 2));
-          expectedReturn = `+${Math.floor(12 + (s.currentScore % 28))}%`;
-          holdDuration = `${Math.floor(1 + (s.currentScore % 3))} - ${Math.floor(4 + (s.currentScore % 5))} Months`;
+          expectedReturn = 'Heavy Accumulation Detected';
+          holdDuration = 'Institutions building long-term positions.';
         }
 
         return { symbol, action, conf, expectedReturn, holdDuration, ...s };
@@ -135,14 +135,14 @@ export default function Recommendations() {
 
                 <div className="grid grid-cols-2 gap-4 mt-2 border-t pt-4" style={{ borderColor: 'var(--border-color)' }}>
                   <div>
-                    <div className="text-muted text-xs uppercase tracking-wider mb-1">Expected ROI</div>
-                    <div className="mono font-semibold" style={{ color: sig.action.includes('BUY') ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
+                    <div className="text-muted text-xs uppercase tracking-wider mb-1">Market Insight</div>
+                    <div className="mono font-semibold" style={{ fontSize: '0.8rem', color: sig.action.includes('BUY') ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
                       {sig.expectedReturn}
                     </div>
                   </div>
                   <div>
-                    <div className="text-muted text-xs uppercase tracking-wider mb-1">Holding Duration</div>
-                    <div className="font-medium text-sm">{sig.holdDuration}</div>
+                    <div className="text-muted text-xs uppercase tracking-wider mb-1">Action Strategy</div>
+                    <div className="font-medium text-sm" style={{ fontSize: '0.8rem' }}>{sig.holdDuration}</div>
                   </div>
                 </div>
               </div>
