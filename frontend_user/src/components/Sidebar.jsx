@@ -63,6 +63,7 @@ export default function Sidebar({ isOpen, onClose }) {
           v2.0 — NSE Bulk & Block
         </div>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
