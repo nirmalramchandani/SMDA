@@ -11,7 +11,7 @@ from pipeline.task_manager import TaskManager
 from pipeline.notifier import notify_error
 from ingestion.processor import IngestProcessor
 from db.postgres import get_connection
-from db.mongo import investors_collection, investor_metrics_collection
+from db.mongo import investors_collection, investor_metrics_collection, high_conviction_signals_collection
 
 router = APIRouter()
 
@@ -328,6 +328,116 @@ async def get_investor(investor_id: str):
     return {"data": doc}
 
 
+@router.get("/data/investors/{investor_id}/portfolio")
+async def get_investor_portfolio(investor_id: str):
+    """Return the full portfolio (including open lots) for a single investor.
+    
+    Groups lots by symbol and computes per-holding metrics:
+      - total_qty, avg_price, invested_value
+      - first_buy_date, last_buy_date, holding_days
+      - individual lot breakdown
+    """
+    from datetime import date as dt_date
+
+    doc = investors_collection.find_one(
+        {"_id": investor_id},
+        {"portfolio_state.open_lots": 1, "portfolio_state.positions": 1,
+         "portfolio_state.tracked_value": 1}
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Investor not found")
+
+    lots = doc.get("portfolio_state", {}).get("open_lots", [])
+    positions = doc.get("portfolio_state", {}).get("positions", [])
+    tracked_value = doc.get("portfolio_state", {}).get("tracked_value", 0)
+
+    # Build position lookup for weights
+    pos_map = {p["symbol"]: p for p in positions if p.get("qty", 0) > 0}
+
+    # Group lots by symbol
+    holdings = {}
+    today = dt_date.today()
+    for lot in lots:
+        sym = lot["symbol"]
+        if sym not in holdings:
+            holdings[sym] = {
+                "symbol": sym,
+                "total_qty": 0,
+                "invested_value": 0.0,
+                "avg_price": 0.0,
+                "first_buy_date": lot.get("buy_date"),
+                "last_buy_date": lot.get("buy_date"),
+                "lots": [],
+                "position_weight": 0.0,
+            }
+        h = holdings[sym]
+        qty = lot.get("qty", 0)
+        price = lot.get("price", 0)
+        buy_date_str = lot.get("buy_date", "")
+
+        h["total_qty"] += qty
+        h["invested_value"] += qty * price
+
+        if buy_date_str and (not h["first_buy_date"] or buy_date_str < h["first_buy_date"]):
+            h["first_buy_date"] = buy_date_str
+        if buy_date_str and (not h["last_buy_date"] or buy_date_str > h["last_buy_date"]):
+            h["last_buy_date"] = buy_date_str
+
+        # Compute lot holding days
+        hold_days = 0
+        if buy_date_str:
+            try:
+                bd = dt_date.fromisoformat(buy_date_str[:10])
+                hold_days = (today - bd).days
+            except ValueError:
+                pass
+
+        h["lots"].append({
+            "qty": qty,
+            "price": round(price, 2),
+            "buy_date": buy_date_str[:10] if buy_date_str else None,
+            "holding_days": hold_days,
+            "invested": round(qty * price, 2),
+        })
+
+    # Finalize each holding
+    result = []
+    for sym, h in holdings.items():
+        if h["total_qty"] > 0:
+            h["avg_price"] = round(h["invested_value"] / h["total_qty"], 2)
+        h["invested_value"] = round(h["invested_value"], 2)
+        h["num_lots"] = len(h["lots"])
+
+        # Holding duration from first buy
+        if h["first_buy_date"]:
+            try:
+                fd = dt_date.fromisoformat(h["first_buy_date"][:10])
+                h["holding_days"] = (today - fd).days
+            except ValueError:
+                h["holding_days"] = 0
+        else:
+            h["holding_days"] = 0
+
+        # Weight from positions
+        pm = pos_map.get(sym)
+        if pm:
+            h["position_weight"] = round(pm.get("position_weight", 0) * 100, 2)
+
+        # Sort lots oldest first
+        h["lots"].sort(key=lambda l: l.get("buy_date") or "")
+        result.append(h)
+
+    # Sort by invested value descending
+    result.sort(key=lambda x: x["invested_value"], reverse=True)
+
+    return {
+        "investor_id": investor_id,
+        "total_invested": round(tracked_value, 2),
+        "num_holdings": len(result),
+        "holdings": result,
+    }
+
+
 @router.get("/data/sells")
 async def get_sell_transactions(limit: int = Query(50), skip: int = Query(0)):
     """Return recent sell transactions from PostgreSQL."""
@@ -473,3 +583,18 @@ async def clear_database():
     except Exception as e:
         print(f"[api] Error clearing database: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/data/signals")
+async def get_signals(limit: int = 50):
+    """Fetch high conviction signals for the Command Center."""
+    try:
+        cursor = high_conviction_signals_collection.find().sort("timestamp", -1).limit(limit)
+        signals = []
+        for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            signals.append(doc)
+        return {"total": len(signals), "data": signals}
+    except Exception as e:
+        print(f"[api] Error fetching signals: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
