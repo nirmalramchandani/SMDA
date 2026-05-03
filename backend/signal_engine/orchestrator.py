@@ -1,6 +1,7 @@
 import asyncio
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
-from .models import SignalSchema, StrategyResult, SignalType, WeightingConfig
+from .models import SignalSchema, StrategyResult, SignalType, WeightingConfig, PortfolioHolding, ExitMetadata
 from .strategy import BaseStrategy
 from .dal import SignalDAL
 from .logger import get_structured_logger
@@ -99,7 +100,8 @@ class SignalEngine:
             confidence_label=confidence_label,
             consensus_level=triggered_count,
             expert_summary=summary,
-            strategy_breakdown=valid_results
+            strategy_breakdown=valid_results,
+            deal_date=deal_data.get("date", "")
         )
 
         logger.info(f"Signal generated for {symbol}", extra={"extra_info": {"score": consensus_score, "level": triggered_count, "label": confidence_label}})
@@ -107,4 +109,42 @@ class SignalEngine:
         # Persist to DB
         await self.dal.save_signal(signal.model_dump(mode='json'))
         
+        # Phase 6: Exit Engine & Lifecycle - Attach Exit Metadata and create PortfolioHolding
+        if signal_type == SignalType.BUY:
+            investor_name = deal_data.get("investor_name", "Unknown")
+            entry_price = float(deal_data.get("price", 0.0))
+            entry_date_str = deal_data.get("date", datetime.now().strftime("%Y-%m-%d"))
+            entry_date = datetime.strptime(entry_date_str, "%Y-%m-%d")
+
+            # Fetch Whale stats
+            whale_stats = await self.dal.get_investor_history(investor_name)
+            avg_return = whale_stats.get("historical_avg_return", 0.15) # default 15%
+            max_drawdown = whale_stats.get("max_drawdown", 0.10) # default 10%
+            mean_hold_days = whale_stats.get("mean_holding_duration", 90) # default 90 days
+
+            # Calculate triggers
+            target_price = entry_price * (1 + avg_return)
+            stop_loss = entry_price * (1 - max_drawdown)
+            est_exit_date = entry_date + timedelta(days=int(mean_hold_days))
+
+            exit_metadata = ExitMetadata(
+                target_price=target_price,
+                stop_loss=stop_loss,
+                estimated_exit_date=est_exit_date
+            )
+
+            holding = PortfolioHolding(
+                symbol=symbol,
+                investor_name=investor_name,
+                entry_price=entry_price,
+                entry_date=entry_date,
+                whale_stats_at_entry=whale_stats,
+                exit_metadata=exit_metadata,
+                status="ACTIVE"
+            )
+
+            # Persist holding to db
+            await self.dal.save_portfolio_holding(holding.model_dump(mode='json'))
+            logger.info(f"PortfolioHolding created for {symbol} by {investor_name} with Target: {target_price:.2f}, SL: {stop_loss:.2f}")
+
         return signal

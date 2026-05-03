@@ -7,17 +7,25 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export default function SignalCommandCenter() {
   const [signals, setSignals] = useState([]);
+  const [holdings, setHoldings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
   const [error, setError] = useState(null);
   const [filter, setFilter] = useState('ALL');
+  const [viewMode, setViewMode] = useState('SIGNALS'); // SIGNALS or HOLDINGS
 
   useEffect(() => {
     const fetchSignals = async () => {
       try {
-        const response = await fetch(`${API_BASE}/data/signals`);
-        if (!response.ok) throw new Error('Failed to fetch signals');
-        const json = await response.json();
+        const [sigRes, holdRes] = await Promise.all([
+          fetch(`${API_BASE}/data/signals`),
+          fetch(`${API_BASE}/data/portfolio`)
+        ]);
+
+        if (!sigRes.ok || !holdRes.ok) throw new Error('Failed to fetch data');
+        
+        const json = await sigRes.json();
+        const holdJson = await holdRes.json();
         
         // Map the backend data to the frontend schema if needed
         const mappedSignals = json.data.map(s => ({
@@ -27,6 +35,7 @@ export default function SignalCommandCenter() {
           label: s.confidence_label,
           type: s.signal_type || 'BUY',
           timestamp: s.timestamp,
+          deal_date: s.deal_date || 'Unknown',
           expert_summary: s.expert_summary.split('Analyst Verdict:')[0].trim(),
           ai_context: s.expert_summary.includes('Analyst Verdict:') 
                         ? s.expert_summary.split('Analyst Verdict:')[1].trim().split('•').filter(b => b.trim() !== '') 
@@ -36,9 +45,10 @@ export default function SignalCommandCenter() {
         }));
         
         setSignals(mappedSignals);
+        setHoldings(holdJson.data || []);
         setError(null);
       } catch (error) {
-        console.error("Error fetching signals:", error);
+        console.error("Error fetching data:", error);
         setError("Could not reach the signal intelligence engine.");
       } finally {
         setLoading(false);
@@ -106,17 +116,36 @@ export default function SignalCommandCenter() {
           </button>
 
           <div className="flex gap-1 bg-slate-900/50 p-1 rounded-full border border-slate-800">
-            {['ALL', 'HERD', 'CONVICTION', 'VOLUME'].map(f => (
-              <button
-                key={f}
-                className={`filter-chip ${filter === f ? 'active' : ''}`}
-                style={{ fontSize: '0.7rem', padding: '4px 10px' }}
-                onClick={() => setFilter(f)}
-              >
-                {f}
-              </button>
-            ))}
+            <button
+              className={`filter-chip ${viewMode === 'SIGNALS' ? 'active' : ''}`}
+              style={{ fontSize: '0.7rem', padding: '4px 10px' }}
+              onClick={() => setViewMode('SIGNALS')}
+            >
+              Recent Signals
+            </button>
+            <button
+              className={`filter-chip ${viewMode === 'HOLDINGS' ? 'active' : ''}`}
+              style={{ fontSize: '0.7rem', padding: '4px 10px' }}
+              onClick={() => setViewMode('HOLDINGS')}
+            >
+              Active Holdings
+            </button>
           </div>
+          
+          {viewMode === 'SIGNALS' && (
+            <div className="flex gap-1 bg-slate-900/50 p-1 rounded-full border border-slate-800 ml-2">
+              {['ALL', 'HERD', 'CONVICTION', 'VOLUME'].map(f => (
+                <button
+                  key={f}
+                  className={`filter-chip ${filter === f ? 'active' : ''}`}
+                  style={{ fontSize: '0.7rem', padding: '4px 10px' }}
+                  onClick={() => setFilter(f)}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -131,87 +160,164 @@ export default function SignalCommandCenter() {
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          {filteredSignals.map(signal => (
-            <div key={signal.id} className="glass-card" style={{ padding: '20px', borderLeft: `4px solid ${getLabelColor(signal.label)}` }}>
-              <div className="flex justify-between items-start mb-4">
-                <div className="flex items-center gap-4">
-                  <div style={{
-                    background: 'rgba(15, 23, 42, 0.6)', padding: '10px 16px', borderRadius: '8px', border: '1px solid var(--border-light)'
-                  }}>
-                    <div className="font-mono text-xl font-bold">{signal.symbol}</div>
-                    <div className="text-xs text-muted font-mono mt-1">{new Date(signal.timestamp).toLocaleString()}</div>
-                  </div>
-                  
-                  <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <span className="badge" style={{ background: getLabelColor(signal.label) + '22', color: getLabelColor(signal.label), border: `1px solid ${getLabelColor(signal.label)}44` }}>
-                        <ShieldAlert size={12} className="mr-1" />
-                        {signal.label} {signal.type}
-                      </span>
-                      <span className="font-mono font-bold" style={{ fontSize: '1.2rem', color: getLabelColor(signal.label) }}>
-                        {signal.score.toFixed(1)}
-                      </span>
+          {viewMode === 'SIGNALS' ? (
+            <>
+              {filteredSignals.map(signal => (
+                <div key={signal.id} className="glass-card" style={{ padding: '20px', borderLeft: `4px solid ${getLabelColor(signal.label)}` }}>
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex items-center gap-4">
+                      <div style={{
+                        background: 'rgba(15, 23, 42, 0.6)', padding: '10px 16px', borderRadius: '8px', border: '1px solid var(--border-light)'
+                      }}>
+                        <div className="font-mono text-xl font-bold">{signal.symbol}</div>
+                        <div className="text-xs text-muted font-mono mt-1">Found: {new Date(signal.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                        {signal.deal_date !== 'Unknown' && (
+                          <div className="text-xs font-mono text-emerald-400 mt-1">Deal Date: {signal.deal_date}</div>
+                        )}
+                      </div>
+                      
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                          <span className="badge" style={{ background: getLabelColor(signal.label) + '22', color: getLabelColor(signal.label), border: `1px solid ${getLabelColor(signal.label)}44` }}>
+                            <ShieldAlert size={12} className="mr-1" />
+                            {signal.label} {signal.type}
+                          </span>
+                          <span className="font-mono font-bold" style={{ fontSize: '1.2rem', color: getLabelColor(signal.label) }}>
+                            {signal.score.toFixed(1)}
+                          </span>
+                        </div>
+                        
+                        {/* Whale DNA Hover (Tooltip simulation) */}
+                        <div className="group relative inline-block cursor-help">
+                          <div className="text-xs text-muted flex items-center gap-1">
+                            <Info size={12} /> View Investor DNA
+                          </div>
+                          <div className="hidden group-hover:block absolute top-full left-0 mt-2 w-48 p-3 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50">
+                            <div className="text-xs font-bold mb-1">Historical Accuracy</div>
+                            <div className="flex justify-between font-mono text-sm mb-2">
+                              <span>Hit Ratio:</span> <span className="text-emerald-400">{(signal.whale_dna.hit_ratio * 100).toFixed(0)}%</span>
+                            </div>
+                            <div className="flex justify-between font-mono text-sm">
+                              <span>Sector:</span> <span>{signal.whale_dna.sector}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
+
+                    {/* Alpha Sparkline */}
+                    <div style={{ width: '120px', height: '40px' }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={signal.sparkline.map((val, i) => ({ val, i }))}>
+                          <defs>
+                            <linearGradient id={`grad-${signal.id}`} x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor={getLabelColor(signal.label)} stopOpacity={0.3} />
+                              <stop offset="95%" stopColor={getLabelColor(signal.label)} stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <Area type="monotone" dataKey="val" stroke={getLabelColor(signal.label)} fill={`url(#grad-${signal.id})`} strokeWidth={2} isAnimationActive={false} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  {/* Expert Summary & AI Context */}
+                  <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-800">
+                    <p className="text-sm text-slate-300 leading-relaxed mb-4">
+                      {signal.expert_summary}
+                    </p>
                     
-                    {/* Whale DNA Hover (Tooltip simulation) */}
-                    <div className="group relative inline-block cursor-help">
-                      <div className="text-xs text-muted flex items-center gap-1">
-                        <Info size={12} /> View Investor DNA
-                      </div>
-                      <div className="hidden group-hover:block absolute top-full left-0 mt-2 w-48 p-3 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50">
-                        <div className="text-xs font-bold mb-1">Historical Accuracy</div>
-                        <div className="flex justify-between font-mono text-sm mb-2">
-                          <span>Hit Ratio:</span> <span className="text-emerald-400">{(signal.whale_dna.hit_ratio * 100).toFixed(0)}%</span>
+                    {signal.ai_context && (
+                      <div className="border-t border-slate-800 pt-3 mt-2">
+                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                          <Zap size={14} className="text-yellow-500" /> Analyst Verdict (AI)
                         </div>
-                        <div className="flex justify-between font-mono text-sm">
-                          <span>Sector:</span> <span>{signal.whale_dna.sector}</span>
-                        </div>
+                        <ul className="flex flex-col gap-2">
+                          {signal.ai_context.map((bullet, i) => (
+                            <li key={i} className="text-sm text-slate-300 flex items-start gap-2">
+                              <span className="text-yellow-500 mt-1">•</span> {bullet}
+                            </li>
+                          ))}
+                        </ul>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
-
-                {/* Alpha Sparkline */}
-                <div style={{ width: '120px', height: '40px' }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={signal.sparkline.map((val, i) => ({ val, i }))}>
-                      <defs>
-                        <linearGradient id={`grad-${signal.id}`} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={getLabelColor(signal.label)} stopOpacity={0.3} />
-                          <stop offset="95%" stopColor={getLabelColor(signal.label)} stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <Area type="monotone" dataKey="val" stroke={getLabelColor(signal.label)} fill={`url(#grad-${signal.id})`} strokeWidth={2} isAnimationActive={false} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* Expert Summary & AI Context */}
-              <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-800">
-                <p className="text-sm text-slate-300 leading-relaxed mb-4">
-                  {signal.expert_summary}
-                </p>
+              ))}
+              {filteredSignals.length === 0 && (
+                <div className="empty-state">No active signals found for this filter.</div>
+              )}
+            </>
+          ) : (
+            <>
+              {holdings.map((h, idx) => {
+                const entryDate = new Date(h.entry_date);
+                const meanDays = h.whale_stats_at_entry?.mean_holding_duration || 90;
+                const daysHeld = Math.floor((new Date() - entryDate) / (1000 * 60 * 60 * 24));
+                const progressPct = Math.min(100, Math.max(0, (daysHeld / meanDays) * 100));
                 
-                {signal.ai_context && (
-                  <div className="border-t border-slate-800 pt-3 mt-2">
-                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                      <Zap size={14} className="text-yellow-500" /> Analyst Verdict (AI)
+                let gaugeColor = 'var(--accent-emerald)';
+                if (progressPct > 80) gaugeColor = 'var(--accent-amber)';
+                if (progressPct >= 100) gaugeColor = 'var(--accent-rose)';
+
+                return (
+                  <div key={h._id || idx} className="glass-card" style={{ padding: '20px', borderLeft: `4px solid ${gaugeColor}` }}>
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="flex items-center gap-4">
+                        <div style={{
+                          background: 'rgba(15, 23, 42, 0.6)', padding: '10px 16px', borderRadius: '8px', border: '1px solid var(--border-light)'
+                        }}>
+                          <div className="font-mono text-xl font-bold">{h.symbol}</div>
+                          <div className="text-xs text-muted font-mono mt-1">{h.investor_name}</div>
+                        </div>
+                        
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <span className="badge" style={{ background: gaugeColor + '22', color: gaugeColor, border: `1px solid ${gaugeColor}44` }}>
+                              <Activity size={12} className="mr-1" />
+                              {h.status}
+                            </span>
+                          </div>
+                          <div className="text-xs text-muted mt-1 font-mono">
+                            Entry: {formatINR(h.entry_price)} | Target: <span className="text-emerald-400">{formatINR(h.exit_metadata?.target_price)}</span>
+                          </div>
+                          <div className="text-xs text-muted font-mono">
+                            Stop Loss: <span className="text-rose-400">{formatINR(h.exit_metadata?.stop_loss)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Projected ROI */}
+                      <div className="text-right">
+                        <div className="text-xs text-muted uppercase tracking-wider mb-1">Projected ROI</div>
+                        <div className="font-mono text-xl text-emerald-400 font-bold">
+                          +{((h.whale_stats_at_entry?.historical_avg_return || 0) * 100).toFixed(1)}%
+                        </div>
+                      </div>
                     </div>
-                    <ul className="flex flex-col gap-2">
-                      {signal.ai_context.map((bullet, i) => (
-                        <li key={i} className="text-sm text-slate-300 flex items-start gap-2">
-                          <span className="text-yellow-500 mt-1">•</span> {bullet}
-                        </li>
-                      ))}
-                    </ul>
+
+                    {/* Holding Clock Progress */}
+                    <div className="mt-4 pt-4 border-t border-slate-800">
+                      <div className="flex justify-between text-xs font-mono text-slate-400 mb-2">
+                        <span>Holding Clock</span>
+                        <span style={{ color: gaugeColor }}>{daysHeld} / {meanDays} Days</span>
+                      </div>
+                      <div className="progress-bar" style={{ height: '6px', background: 'rgba(15, 23, 42, 0.8)' }}>
+                        <div className="progress-bar-fill" style={{ width: `${progressPct}%`, background: gaugeColor, transition: 'width 1s ease-in-out' }} />
+                      </div>
+                      {progressPct >= 100 && (
+                        <div className="text-xs text-rose-400 mt-2 font-bold flex items-center gap-1">
+                          <ShieldAlert size={12} /> Time Exhausted: Exit Recommended
+                        </div>
+                      )}
+                    </div>
                   </div>
-                )}
-              </div>
-            </div>
-          ))}
-          {filteredSignals.length === 0 && (
-            <div className="empty-state">No active signals found for this filter.</div>
+                );
+              })}
+              {holdings.length === 0 && (
+                <div className="empty-state">No active holdings.</div>
+              )}
+            </>
           )}
         </div>
       )}

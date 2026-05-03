@@ -10,6 +10,7 @@ from signal_engine.enrichment import ContextualistAgent
 from signal_engine.alerting import NotificationService
 from signal_engine.logger import get_structured_logger
 from signal_engine.strategy import InstitutionalHerdingStrategy, WhaleConvictionStrategy, RelativeVolumeIntensityStrategy, WhaleExitStrategy
+from signal_engine.exit_engine import ExitOrchestrator
 from db.mongo import high_conviction_signals_collection, investors_collection
 
 logger = get_structured_logger("signal_engine.pipeline")
@@ -87,6 +88,11 @@ class EndToEndPipeline:
             
             # 6:30 PM: Email Alert
             await self.alerter.send_alert(enriched_signal)
+
+        # Phase 6: Exit Engine execution
+        logger.info("Starting Phase 6: Exit Engine evaluation...")
+        exit_orchestrator = ExitOrchestrator(self.dal)
+        await exit_orchestrator.evaluate_holdings()
             
         logger.info("Daily pipeline execution completed.")
 

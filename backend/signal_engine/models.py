@@ -25,6 +25,7 @@ class SignalSchema(BaseModel):
     expert_summary: str = Field(..., description="Human-readable aggregation of the reasoning")
     strategy_breakdown: List[StrategyResult] = Field(default_factory=list)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    deal_date: str = Field(default="")
 
 class WeightingConfig(BaseModel):
     InstitutionalHerdingStrategy: float = 0.40
@@ -36,3 +37,20 @@ class WeightingConfig(BaseModel):
         if not abs(total - 1.0) < 0.001:
             raise ValueError(f"Weights must sum to 1.0, got {total}")
 
+class ExitMetadata(BaseModel):
+    target_price: float
+    stop_loss: float
+    estimated_exit_date: Optional[datetime] = None
+
+class PortfolioHolding(BaseModel):
+    holding_id: UUID = Field(default_factory=uuid4)
+    symbol: str
+    investor_name: str
+    entry_price: float
+    entry_date: datetime
+    whale_stats_at_entry: dict
+    exit_metadata: ExitMetadata
+    status: str = Field(default="ACTIVE", description="ACTIVE, TIME_EXHAUSTED, TARGET_HIT, STOPPED_OUT, MIRROR_EXIT")
+    exit_date: Optional[datetime] = None
+    exit_price: Optional[float] = None
+    exit_reason: Optional[str] = None

@@ -599,6 +599,21 @@ async def get_signals(limit: int = 50):
         print(f"[api] Error fetching signals: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/data/portfolio")
+async def get_portfolio_holdings(limit: int = 50):
+    """Fetch active portfolio holdings."""
+    try:
+        from db.mongo import portfolio_holdings_collection
+        cursor = portfolio_holdings_collection.find({"status": "ACTIVE"}).sort("entry_date", -1).limit(limit)
+        holdings = []
+        for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            holdings.append(doc)
+        return {"total": len(holdings), "data": holdings}
+    except Exception as e:
+        print(f"[api] Error fetching holdings: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/data/signals/generate")
 async def generate_signals(background_tasks: BackgroundTasks):
     """Manually trigger the Signal Engine."""

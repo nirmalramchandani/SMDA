@@ -160,3 +160,11 @@ class SignalDAL:
             high_conviction_signals_collection.insert_one(signal_dict)
         except Exception as e:
             print(f"Error saving signal: {e}")
+
+    async def save_portfolio_holding(self, holding_dict: dict) -> None:
+        """Persist a new holding to the portfolio_holdings collection."""
+        try:
+            from db.mongo import portfolio_holdings_collection
+            portfolio_holdings_collection.insert_one(holding_dict)
+        except Exception as e:
+            print(f"Error saving holding: {e}")
