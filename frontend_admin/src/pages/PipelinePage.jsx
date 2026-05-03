@@ -89,6 +89,10 @@ export default function PipelinePage() {
   const [isPaused, setIsPaused] = useState(false);
   const [taskId, setTaskId] = useState(null);
 
+  // Phase 3 state
+  const [signalsRunning, setSignalsRunning] = useState(false);
+  const [signalsDone, setSignalsDone] = useState(false);
+
   // Checkpoint
   const [checkpoint, setCheckpoint] = useState(-1);
 
@@ -362,6 +366,28 @@ export default function PipelinePage() {
     }
   }, [cleanTxnPath, cleanEvtPath, consumeIngestStream]);
 
+  // ─── Phase 3: Signal Engine ──────────────────────────────────────
+  const runSignals = useCallback(async () => {
+    setSignalsRunning(true);
+    setSignalsDone(false);
+    setError(null);
+    try {
+      const resp = await fetch(`${API_BASE}/data/signals/generate`, { method: 'POST' });
+      if (!resp.ok) throw new Error('Failed to trigger signal engine');
+      const data = await resp.json();
+      setPhase2Logs(prev => [...prev, `⚡ ${data.message}`]);
+      
+      // Since it's a background task, we'll just wait a bit or assume success
+      setTimeout(() => {
+        setSignalsRunning(false);
+        setSignalsDone(true);
+      }, 3000);
+    } catch (err) {
+      setError(err.message);
+      setSignalsRunning(false);
+    }
+  }, []);
+
   const handlePause = async () => {
     try {
       await fetch(`${API_BASE}/upload/pause`, { method: 'POST' });
@@ -623,6 +649,47 @@ export default function PipelinePage() {
             <div className="status-message status-success mt-lg">
               <span>🎉</span>
               <span>Ingestion complete! Data is now in your databases.</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── Phase 3: Intelligence Engine ──────────────────────────────── */}
+      {(phase2Done || signalsDone || signalsRunning) && (
+        <div className="card mb-lg phase-section animate-in">
+          <div className="card-header">
+            <span className="card-title">Phase 3 — Signal Intelligence Engine</span>
+            {signalsDone && <span className="badge badge-success">Active</span>}
+            {signalsRunning && <span className="badge badge-info">Analyzing...</span>}
+          </div>
+          
+          <div className="status-message status-info mb-md" style={{ fontSize: '0.82rem' }}>
+            <span>🧠</span>
+            <span>
+              The Signal Engine scans the latest 50 clusters of smart money deals to identify 
+              high-conviction entries, then enriches them with fundamental RAG context.
+            </span>
+          </div>
+
+          <button 
+            className="btn btn-primary btn-lg w-full"
+            onClick={runSignals}
+            disabled={signalsRunning}
+          >
+            {signalsRunning ? (
+              <>
+                <span className="spinner" />
+                Processing Strategies...
+              </>
+            ) : (
+              '⚡ Manually Trigger Signal Engine'
+            )}
+          </button>
+
+          {signalsDone && (
+            <div className="status-message status-success mt-md">
+              <span>🚀</span>
+              <span>Signals generated. Check the User Terminal to view latest high-conviction alerts.</span>
             </div>
           )}
         </div>

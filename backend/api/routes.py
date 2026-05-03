@@ -599,3 +599,23 @@ async def get_signals(limit: int = 50):
         print(f"[api] Error fetching signals: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/data/signals/generate")
+async def generate_signals(background_tasks: BackgroundTasks):
+    """Manually trigger the Signal Engine."""
+    try:
+        from signal_engine.pipeline import EndToEndPipeline
+        import asyncio
+
+        async def run_signals_task():
+            print("[api] Manual Signal Generation Triggered...")
+            pipeline = EndToEndPipeline()
+            await pipeline.run_daily_batch()
+            print("[api] Manual Signal Generation Complete.")
+
+        background_tasks.add_task(run_signals_task)
+        
+        return {"status": "started", "message": "Signal intelligence engine started in background."}
+    except Exception as e:
+        print(f"[api] Error triggering signals: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+

@@ -1005,11 +1005,12 @@ class IngestProcessor:
                 # Persist row to both DBs
                 self._sync_persist_row(idx, investor_name, txn_date, state, sell_rec)
 
-            # Final month snapshot
+            # Final month snapshot - only if we reached the actual end of the month in this batch
             if current_month is not None:
                 last_day     = calendar.monthrange(current_month.year, current_month.month)[1]
-                end_of_month = date(current_month.year, current_month.month, last_day)
-                yield from self._sync_persist_monthly_snapshots(end_of_month)
+                if txn_date.day == last_day:
+                    end_of_month = date(current_month.year, current_month.month, last_day)
+                    yield from self._sync_persist_monthly_snapshots(end_of_month)
 
             yield "[STAGE] Pipeline complete. All rows processed and persisted synchronously."
         
