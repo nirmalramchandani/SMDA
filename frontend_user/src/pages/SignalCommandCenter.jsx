@@ -8,6 +8,7 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 export default function SignalCommandCenter() {
   const [signals, setSignals] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [triggering, setTriggering] = useState(false);
   const [error, setError] = useState(null);
   const [filter, setFilter] = useState('ALL');
 
@@ -50,6 +51,19 @@ export default function SignalCommandCenter() {
     return () => clearInterval(interval);
   }, []);
 
+  const handleManualTrigger = async () => {
+    setTriggering(true);
+    try {
+      const resp = await fetch(`${API_BASE}/data/signals/generate`, { method: 'POST' });
+      if (!resp.ok) throw new Error('Engine unreachable');
+      alert("Intelligence Engine Triggered. Scanning latest institutional deals...");
+    } catch (err) {
+      alert("Failed to start engine: " + err.message);
+    } finally {
+      setTriggering(false);
+    }
+  };
+
   const getLabelColor = (label) => {
     if (label === 'CRITICAL') return 'var(--accent-rose)';
     if (label === 'HIGH') return 'var(--accent-emerald)';
@@ -74,19 +88,35 @@ export default function SignalCommandCenter() {
           </h1>
           <p className="page-subtitle">Real-time, AI-enriched High Conviction Opportunities.</p>
         </div>
-        <div className="flex gap-2">
-          {['ALL', 'HERD', 'CONVICTION', 'VOLUME'].map(f => (
-            <button
-              key={f}
-              className={`btn btn-sm ${filter === f ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setFilter(f)}
-            >
-              {f === 'HERD' && <Anchor size={14} className="mr-1" />}
-              {f === 'CONVICTION' && <TrendingUp size={14} className="mr-1" />}
-              {f === 'VOLUME' && <Zap size={14} className="mr-1" />}
-              {f}
-            </button>
-          ))}
+        <div className="flex items-center gap-4">
+          {/* Pulsing Intelligence Trigger */}
+          <button 
+            className={`btn btn-sm ${triggering ? 'btn-ghost' : 'btn-primary'}`}
+            style={{ 
+              background: 'var(--accent-rose)', 
+              borderColor: 'var(--accent-rose)',
+              boxShadow: '0 0 15px rgba(244, 63, 94, 0.4)',
+              animation: triggering ? 'none' : 'pulse-rose 2s infinite'
+            }}
+            onClick={handleManualTrigger}
+            disabled={triggering}
+          >
+            {triggering ? <span className="spinner" style={{ width: 14, height: 14 }} /> : <Zap size={14} className="mr-1" />}
+            {triggering ? 'Analyzing...' : 'Run Intelligence'}
+          </button>
+
+          <div className="flex gap-1 bg-slate-900/50 p-1 rounded-full border border-slate-800">
+            {['ALL', 'HERD', 'CONVICTION', 'VOLUME'].map(f => (
+              <button
+                key={f}
+                className={`filter-chip ${filter === f ? 'active' : ''}`}
+                style={{ fontSize: '0.7rem', padding: '4px 10px' }}
+                onClick={() => setFilter(f)}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
