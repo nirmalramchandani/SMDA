@@ -46,9 +46,9 @@ class EndToEndPipeline:
                         "date": item["last_buy_date"]
                     })
                     
-        # Sort by buy_date descending and pick the 5 most recent
+        # Sort by buy_date descending and pick the 50 most recent unique deals
         all_deals.sort(key=lambda x: x["date"], reverse=True)
-        recent_deals_raw = all_deals[:5]
+        recent_deals_raw = all_deals[:50]
         
         if not recent_deals_raw:
             logger.error("No real data found in MongoDB to run the pipeline on.")
@@ -62,7 +62,7 @@ class EndToEndPipeline:
                 daily_deals.append(deal)
                 symbols_processed.add(deal["symbol"])
                 
-        logger.info(f"Starting daily pipeline execution for {len(daily_deals)} real deals")
+        logger.info(f"Starting daily pipeline execution for {len(daily_deals)} deals. Symbols: {[d['symbol'] for d in daily_deals]}")
 
         signals = []
         for deal in daily_deals:

@@ -189,6 +189,28 @@ def run_ingest(clean_txn_path: str, clean_evt_path: str = None, resume: bool = F
             print(f"[runner] Scoring engine error: {str(score_err)}")
             yield _emit("INGESTION", 99, f"AI Scoring skipped/failed: {str(score_err)}", check_id="ai_scoring", check_status="error")
 
+        # --- Phase 3: Signal Engine (High Conviction Generation) ---
+        try:
+            yield _emit("INGESTION", 99, "Triggering Signal Engine for High-Conviction detection...", check_id="signal_engine", check_status="pending")
+            import asyncio
+            from signal_engine.pipeline import EndToEndPipeline
+            
+            # Since run_ingest is called in a background thread, we can use asyncio.run
+            async def run_signals_async():
+                pipeline = EndToEndPipeline()
+                await pipeline.run_daily_batch()
+
+            try:
+                asyncio.run(run_signals_async())
+                yield _emit("INGESTION", 99, "High-Conviction signals generated and alerts dispatched.", check_id="signal_engine", check_status="done")
+            except Exception as e:
+                print(f"[runner] Signal Engine Runtime Error: {str(e)}")
+                yield _emit("INGESTION", 99, f"Signal Engine failed: {str(e)}", check_id="signal_engine", check_status="error")
+
+        except Exception as sig_import_err:
+            print(f"[runner] Signal Engine Import/Setup Error: {str(sig_import_err)}")
+            yield _emit("INGESTION", 99, "Signal Engine unavailable.", check_id="signal_engine", check_status="skipped")
+
         total_txn = len(txn_df)
         total_evt = len(events_df) if events_df is not None else 0
         yield _emit("COMPLETE", 100, f"Sync Ingestion & Scoring complete! {total_txn} rows persisted successfully.")

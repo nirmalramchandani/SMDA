@@ -578,6 +578,7 @@ async def clear_database():
         # Delete all documents in relevant collections
         investors_collection.delete_many({})
         investor_metrics_collection.delete_many({})
+        high_conviction_signals_collection.delete_many({})
 
         return {"status": "success", "message": "All database tables and collections have been purged."}
     except Exception as e:

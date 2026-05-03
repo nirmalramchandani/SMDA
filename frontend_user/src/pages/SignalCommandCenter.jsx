@@ -3,15 +3,18 @@ import { ShieldAlert, TrendingUp, Anchor, Activity, Zap, Info, BellRing } from '
 import { formatINR } from '../utils/formatters';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 export default function SignalCommandCenter() {
   const [signals, setSignals] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [filter, setFilter] = useState('ALL');
 
   useEffect(() => {
     const fetchSignals = async () => {
       try {
-        const response = await fetch('http://localhost:8000/data/signals');
+        const response = await fetch(`${API_BASE}/data/signals`);
         if (!response.ok) throw new Error('Failed to fetch signals');
         const json = await response.json();
         
@@ -32,8 +35,10 @@ export default function SignalCommandCenter() {
         }));
         
         setSignals(mappedSignals);
+        setError(null);
       } catch (error) {
         console.error("Error fetching signals:", error);
+        setError("Could not reach the signal intelligence engine.");
       } finally {
         setLoading(false);
       }
@@ -89,6 +94,10 @@ export default function SignalCommandCenter() {
         <div className="loader-container">
           <div className="spinner" />
           <p className="loader-text">Intercepting Engine Signals...</p>
+        </div>
+      ) : error ? (
+        <div className="status-message status-error mb-lg">
+          <span>❌</span> {error}
         </div>
       ) : (
         <div className="flex flex-col gap-4">
